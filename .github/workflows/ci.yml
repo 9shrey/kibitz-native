@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux GCC
+            os: ubuntu-24.04
+            preset: release
+            cc: gcc
+            cxx: g++
+          - name: Linux Clang + ASan/UBSan
+            os: ubuntu-24.04
+            preset: sanitize
+            cc: clang
+            cxx: clang++
+          - name: Windows MSVC
+            os: windows-2022
+            preset: msvc
+          - name: macOS Clang (arm64)
+            os: macos-14
+            preset: release
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: runner.os != 'Windows'
+        uses: seanmiddleditch/gha-setup-ninja@v6
+      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --build --preset ${{ matrix.preset }}
+      - run: ctest --preset ${{ matrix.preset }}
+      - name: Benchmark
+        if: matrix.preset != 'sanitize'
+        shell: bash
+        run: |
+          bench=$(find build -type f \( -name kibitz-bench -o -name kibitz-bench.exe \) | head -1)
+          "$bench" 100000

@@ -1,0 +1,4 @@
+# ONNX Runtime's prebuilt library makes one small allocation (14 bytes) that it never frees.
+# It lives inside libonnxruntime.so, not this project. Suppress only allocations made there:
+# a leak in libkibitz would still fail the sanitizer build.
+leak:libonnxruntime.so
