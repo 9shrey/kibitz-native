@@ -54,7 +54,16 @@ Single thread, Intel i7-9750H, 200,000 positions, best of 5 (`kibitz-bench`):
 | native C++ | 301,672 /s | 307,610 /s | 318,148 /s |
 | ONNX Runtime 1.30.1 | 31,246 /s | 164,020 /s | 170,547 /s |
 
-Two things in this table took work to understand:
+The native backend is also ahead on every platform CI builds for (GitHub-hosted runners, batch
+1024, 100,000 positions; shared machines, so treat these as rough):
+
+| CI runner | native C++ | ONNX Runtime | native vs ORT |
+|---|---:|---:|---:|
+| macOS arm64, Clang | 544,914 /s | 148,636 /s | 3.7× |
+| Windows x64, MSVC | 442,346 /s | 281,998 /s | 1.6× |
+| Linux x64, GCC | 516,777 /s | 457,385 /s | 1.1× |
+
+Two things in the first table took work to understand:
 
 **ONNX Runtime needs batches.** At batch size 1 its per-call overhead (building tensors,
 dispatching the graph) costs about 30 µs, ten times the network's actual arithmetic. Batching
