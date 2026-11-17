@@ -73,6 +73,9 @@ endif()
 
 add_executable(kibitz-eval tools/kibitz_eval.c)
 target_link_libraries(kibitz-eval PRIVATE kibitz::kibitz)
+# The tool is C, but libkibitz is C++: link with the C++ driver so the C++ runtime (and, in
+# sanitizer builds, UBSan's C++ runtime) comes along. Linking with the C driver fails under Clang.
+set_target_properties(kibitz-eval PROPERTIES LINKER_LANGUAGE CXX)
 
 # --- tests and benchmark ----------------------------------------------------------------------
 

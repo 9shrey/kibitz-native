@@ -27,7 +27,7 @@ jobs:
             os: windows-2022
             preset: msvc
           - name: macOS Clang (arm64)
-            os: macos-14
+            os: macos-latest
             preset: release
             cc: clang
             cxx: clang++
