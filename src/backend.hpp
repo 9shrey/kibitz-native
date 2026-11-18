@@ -28,7 +28,10 @@ class Backend {
 std::unique_ptr<Backend> make_native_backend(const std::filesystem::path& weights);
 
 #ifdef KIBITZ_WITH_ONNXRUNTIME
-std::unique_ptr<Backend> make_onnxruntime_backend(const std::filesystem::path& model);
+/// provider is a kibitz_provider value.
+std::unique_ptr<Backend> make_onnxruntime_backend(const std::filesystem::path& model, int provider,
+                                                  bool allow_cpu_fallback);
+bool onnxruntime_has_provider(int provider);
 #endif
 
 }  // namespace kibitz

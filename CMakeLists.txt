@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(kibitz_native VERSION 0.1.0 DESCRIPTION "Kibitz chess evaluation network as a C/C++ shared library" LANGUAGES C CXX)
+project(kibitz_native VERSION 0.2.0 DESCRIPTION "Kibitz chess evaluation network as a C/C++ shared library" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -98,7 +98,7 @@ endif()
 include(GNUInstallDirs)
 install(TARGETS kibitz kibitz-eval)
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(FILES models/kibitz.onnx models/kibitz.weights DESTINATION ${CMAKE_INSTALL_DATADIR}/kibitz)
+install(FILES models/kibitz.onnx models/kibitz.int8.onnx models/kibitz.weights DESTINATION ${CMAKE_INSTALL_DATADIR}/kibitz)
 if(KIBITZ_WITH_ONNXRUNTIME)
   install(FILES $<TARGET_FILE:onnxruntime::onnxruntime> DESTINATION
     $<IF:$<BOOL:${WIN32}>,${CMAKE_INSTALL_BINDIR},${CMAKE_INSTALL_LIBDIR}>)

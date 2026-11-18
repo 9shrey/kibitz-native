@@ -1,7 +1,7 @@
 """Python bindings for libkibitz through ctypes: no compiler or build step on the Python side.
 
     from kibitz import Evaluator
-    with Evaluator("models/kibitz.onnx", backend="onnxruntime") as ev:
+    with Evaluator("models/kibitz.int8.onnx", backend="onnxruntime", provider="qnn") as ev:
         ev.eval("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
         ev.eval_batch([...])
 
@@ -14,6 +14,7 @@ import ctypes
 import os
 
 _BACKENDS = {"native": 0, "onnxruntime": 1}
+_PROVIDERS = {"cpu": 0, "qnn": 1, "xnnpack": 2}
 _STATUS = {
     1: "ERR_ARGUMENT",
     2: "ERR_IO",
@@ -22,6 +23,15 @@ _STATUS = {
     5: "ERR_RUNTIME",
     6: "ERR_UNAVAILABLE",
 }
+
+
+class _Options(ctypes.Structure):
+    _fields_ = [
+        ("struct_size", ctypes.c_size_t),
+        ("backend", ctypes.c_int),
+        ("provider", ctypes.c_int),
+        ("allow_cpu_fallback", ctypes.c_int),
+    ]
 
 
 class KibitzError(Exception):
@@ -40,6 +50,14 @@ def _load(path: str | None = None) -> ctypes.CDLL:
     lib.kibitz_last_error.restype = ctypes.c_char_p
     lib.kibitz_has_backend.argtypes = [ctypes.c_int]
     lib.kibitz_open.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+    lib.kibitz_options_init.argtypes = [ctypes.POINTER(_Options)]
+    lib.kibitz_options_init.restype = None
+    lib.kibitz_open_ex.argtypes = [
+        ctypes.c_char_p,
+        ctypes.POINTER(_Options),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    lib.kibitz_has_provider.argtypes = [ctypes.c_int]
     lib.kibitz_eval_fen.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_float)]
     lib.kibitz_eval_batch.argtypes = [
         ctypes.c_void_p,
@@ -52,11 +70,30 @@ def _load(path: str | None = None) -> ctypes.CDLL:
     return lib
 
 
+def has_provider(provider: str, library: str | None = None) -> bool:
+    """Whether this build includes an ONNX Runtime execution provider ("cpu", "qnn", "xnnpack")."""
+    return bool(_load(library).kibitz_has_provider(_PROVIDERS[provider]))
+
+
 class Evaluator:
-    def __init__(self, model: str, backend: str = "native", library: str | None = None):
+    def __init__(
+        self,
+        model: str,
+        backend: str = "native",
+        provider: str = "cpu",
+        allow_cpu_fallback: bool = True,
+        library: str | None = None,
+    ):
+        """provider ("cpu", "qnn" or "xnnpack") only applies to the onnxruntime backend."""
         self._lib = _load(library)
         self._handle = ctypes.c_void_p()
-        self._check(self._lib.kibitz_open(model.encode(), _BACKENDS[backend], ctypes.byref(self._handle)))
+        opts = _Options()
+        self._lib.kibitz_options_init(ctypes.byref(opts))
+        opts.backend = _BACKENDS[backend]
+        opts.provider = _PROVIDERS[provider]
+        opts.allow_cpu_fallback = int(allow_cpu_fallback)
+        status = self._lib.kibitz_open_ex(model.encode(), ctypes.byref(opts), ctypes.byref(self._handle))
+        self._check(status)
 
     def _check(self, status: int) -> None:
         if status != 0:

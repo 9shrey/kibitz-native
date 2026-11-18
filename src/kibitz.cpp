@@ -3,6 +3,7 @@
 
 #include "kibitz/kibitz.h"
 
+#include <cstddef>
 #include <filesystem>
 #include <new>
 #include <string>
@@ -65,10 +66,46 @@ int kibitz_has_backend(kibitz_backend backend) {
   return 0;
 }
 
+int kibitz_has_provider(kibitz_provider provider) {
+#ifdef KIBITZ_WITH_ONNXRUNTIME
+  try {
+    return kibitz::onnxruntime_has_provider(provider) ? 1 : 0;
+  } catch (...) {
+    return 0;  // unknown provider value
+  }
+#else
+  (void)provider;
+  return 0;
+#endif
+}
+
+void kibitz_options_init(kibitz_options* options) {
+  if (options == nullptr) return;
+  *options = kibitz_options{};
+  options->struct_size = sizeof(kibitz_options);
+  options->backend = KIBITZ_BACKEND_NATIVE;
+  options->provider = KIBITZ_PROVIDER_CPU;
+  options->allow_cpu_fallback = 1;
+}
+
 kibitz_status kibitz_open(const char* model_path, kibitz_backend backend, kibitz_evaluator** out) {
+  kibitz_options options;
+  kibitz_options_init(&options);
+  options.backend = backend;
+  return kibitz_open_ex(model_path, &options, out);
+}
+
+kibitz_status kibitz_open_ex(const char* model_path, const kibitz_options* options,
+                             kibitz_evaluator** out) {
   return guarded([&] {
-    if (out == nullptr || model_path == nullptr) return fail(KIBITZ_ERR_ARGUMENT, "null argument");
-    *out = nullptr;
+    if (out != nullptr) *out = nullptr;
+    if (out == nullptr || model_path == nullptr || options == nullptr)
+      return fail(KIBITZ_ERR_ARGUMENT, "null argument");
+    // Any size that covers the fields this version reads is fine, so callers built against
+    // an older or newer header keep working. Too small means kibitz_options_init wasn't called.
+    if (options->struct_size < offsetof(kibitz_options, allow_cpu_fallback) + sizeof(int))
+      return fail(KIBITZ_ERR_ARGUMENT, "kibitz_options not initialised (call kibitz_options_init)");
+    const kibitz_backend backend = options->backend;
     // Paths are UTF-8 on every platform, including Windows.
     const auto path = std::filesystem::path(
         std::u8string(reinterpret_cast<const char8_t*>(model_path)));
@@ -79,7 +116,8 @@ kibitz_status kibitz_open(const char* model_path, kibitz_backend backend, kibitz
         break;
       case KIBITZ_BACKEND_ONNXRUNTIME:
 #ifdef KIBITZ_WITH_ONNXRUNTIME
-        ev->backend = kibitz::make_onnxruntime_backend(path);
+        ev->backend = kibitz::make_onnxruntime_backend(path, options->provider,
+                                                       options->allow_cpu_fallback != 0);
         break;
 #else
         return fail(KIBITZ_ERR_UNAVAILABLE, "built without ONNX Runtime (KIBITZ_WITH_ONNXRUNTIME=OFF)");

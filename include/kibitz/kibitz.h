@@ -45,8 +45,27 @@ typedef enum kibitz_status {
   KIBITZ_ERR_FORMAT = 3,      /* the model file is not a valid model */
   KIBITZ_ERR_FEN = 4,         /* a position string is not valid FEN */
   KIBITZ_ERR_RUNTIME = 5,     /* the inference engine failed */
-  KIBITZ_ERR_UNAVAILABLE = 6  /* the backend was not compiled into this build */
+  KIBITZ_ERR_UNAVAILABLE = 6  /* the backend or execution provider is not in this build */
 } kibitz_status;
+
+/* Where ONNX Runtime runs the model. Ignored by the native backend. */
+typedef enum kibitz_provider {
+  KIBITZ_PROVIDER_CPU = 0,     /* ONNX Runtime's default CPU kernels */
+  KIBITZ_PROVIDER_QNN = 1,     /* Qualcomm NPU (Hexagon HTP) through the QNN execution provider */
+  KIBITZ_PROVIDER_XNNPACK = 2  /* XNNPACK's optimised CPU kernels (ARM and x86) */
+} kibitz_provider;
+
+/* Options for kibitz_open_ex. Always fill one with kibitz_options_init first: struct_size lets
+ * later versions add fields without breaking callers compiled against this header. */
+typedef struct kibitz_options {
+  size_t struct_size;        /* set by kibitz_options_init to sizeof(kibitz_options) */
+  kibitz_backend backend;    /* default KIBITZ_BACKEND_NATIVE */
+  kibitz_provider provider;  /* default KIBITZ_PROVIDER_CPU */
+  /* 1 (default): if the provider is missing from this build of ONNX Runtime, or cannot run some
+   * of the model's operators, run that part on the CPU. 0: fail with KIBITZ_ERR_UNAVAILABLE
+   * (missing provider) or KIBITZ_ERR_RUNTIME (unsupported operators) instead. */
+  int allow_cpu_fallback;
+} kibitz_options;
 
 /* Library version, e.g. "0.1.0". */
 KIBITZ_API const char* kibitz_version(void);
@@ -57,6 +76,17 @@ KIBITZ_API int kibitz_has_backend(kibitz_backend backend);
 /* Load a model. On success *out owns the evaluator; free it with kibitz_close. */
 KIBITZ_API kibitz_status kibitz_open(const char* model_path, kibitz_backend backend,
                                      kibitz_evaluator** out);
+
+/* Fill *options with the defaults listed in kibitz_options. */
+KIBITZ_API void kibitz_options_init(kibitz_options* options);
+
+/* Like kibitz_open, with a choice of execution provider for the ONNX Runtime backend. */
+KIBITZ_API kibitz_status kibitz_open_ex(const char* model_path, const kibitz_options* options,
+                                        kibitz_evaluator** out);
+
+/* Whether this build of ONNX Runtime includes an execution provider (1) or not (0). Always 0
+ * when the library was built without the ONNX Runtime backend. */
+KIBITZ_API int kibitz_has_provider(kibitz_provider provider);
 
 /* Evaluate one position. *centipawns is from the side to move's point of view. */
 KIBITZ_API kibitz_status kibitz_eval_fen(const kibitz_evaluator* ev, const char* fen,

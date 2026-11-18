@@ -54,7 +54,8 @@ int main(int argc, char** argv) {
     const char* name;
   };
   const Backend backends[] = {{KIBITZ_BACKEND_NATIVE, "kibitz.weights", "native C++"},
-                              {KIBITZ_BACKEND_ONNXRUNTIME, "kibitz.onnx", "ONNX Runtime"}};
+                              {KIBITZ_BACKEND_ONNXRUNTIME, "kibitz.onnx", "ONNX Runtime"},
+                              {KIBITZ_BACKEND_ONNXRUNTIME, "kibitz.int8.onnx", "ORT INT8"}};
 
   std::printf("%zu positions, single thread, best of 5\n\n", total);
   std::printf("%-14s %8s %16s %14s\n", "backend", "batch", "positions/sec", "us/position");

@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -197,4 +199,133 @@ TEST(Api, EvaluationIsFromTheSideToMovesPointOfView) {
   ASSERT_EQ(kibitz_eval_fen(ev.ev, "4k3/8/8/8/8/8/8/3QK3 b - - 0 1", &black_to_move), KIBITZ_OK);
   EXPECT_GT(white_up_queen, 300.0f);
   EXPECT_LT(black_to_move, -300.0f);
+}
+
+// --- execution providers and the INT8 model ---------------------------------------------------
+
+namespace {
+
+// The INT8 model's measured error is 18 cp at worst on these positions (tools/quantize.py).
+constexpr float kInt8ToleranceCp = 25.0f;
+
+float worst_cp_error(kibitz_evaluator* ev) {
+  float worst = 0.0f;
+  for (const auto& c : parity_cases()) {
+    float cp = 0.0f;
+    EXPECT_EQ(kibitz_eval_fen(ev, c.fen.c_str(), &cp), KIBITZ_OK) << kibitz_last_error();
+    worst = std::max(worst, std::fabs(cp - c.z * kCp));
+  }
+  return worst;
+}
+
+struct OpenedEx {
+  kibitz_evaluator* ev = nullptr;
+  kibitz_status status;
+  OpenedEx(const std::string& path, kibitz_provider provider, int fallback) {
+    kibitz_options o;
+    kibitz_options_init(&o);
+    o.backend = KIBITZ_BACKEND_ONNXRUNTIME;
+    o.provider = provider;
+    o.allow_cpu_fallback = fallback;
+    status = kibitz_open_ex(path.c_str(), &o, &ev);
+  }
+  ~OpenedEx() { kibitz_close(ev); }
+  OpenedEx(const OpenedEx&) = delete;
+  OpenedEx& operator=(const OpenedEx&) = delete;
+};
+
+const kibitz_provider kAccelerators[] = {KIBITZ_PROVIDER_QNN, KIBITZ_PROVIDER_XNNPACK};
+
+}  // namespace
+
+TEST(Options, InitSetsTheDefaults) {
+  kibitz_options o;
+  std::memset(&o, 0xAB, sizeof o);
+  kibitz_options_init(&o);
+  EXPECT_EQ(o.struct_size, sizeof(kibitz_options));
+  EXPECT_EQ(o.backend, KIBITZ_BACKEND_NATIVE);
+  EXPECT_EQ(o.provider, KIBITZ_PROVIDER_CPU);
+  EXPECT_EQ(o.allow_cpu_fallback, 1);
+  kibitz_options_init(nullptr);  // allowed
+}
+
+TEST(Options, OpenExRejectsUninitialisedOptions) {
+  kibitz_options o{};  // struct_size 0
+  kibitz_evaluator* ev = reinterpret_cast<kibitz_evaluator*>(&o);  // must be reset to null
+  EXPECT_EQ(kibitz_open_ex(model_path("kibitz.weights").c_str(), &o, &ev), KIBITZ_ERR_ARGUMENT);
+  EXPECT_EQ(ev, nullptr);
+  EXPECT_EQ(kibitz_open_ex(model_path("kibitz.weights").c_str(), nullptr, &ev), KIBITZ_ERR_ARGUMENT);
+}
+
+TEST(Options, NativeBackendThroughOpenEx) {
+  kibitz_options o;
+  kibitz_options_init(&o);
+  kibitz_evaluator* ev = nullptr;
+  ASSERT_EQ(kibitz_open_ex(model_path("kibitz.weights").c_str(), &o, &ev), KIBITZ_OK);
+  EXPECT_LT(worst_cp_error(ev), kTolerance * kCp);
+  kibitz_close(ev);
+}
+
+TEST(Providers, CpuIsAlwaysThereWhenOnnxRuntimeIs) {
+  EXPECT_EQ(kibitz_has_provider(KIBITZ_PROVIDER_CPU), kibitz_has_backend(KIBITZ_BACKEND_ONNXRUNTIME));
+  EXPECT_EQ(kibitz_has_provider(static_cast<kibitz_provider>(3)), 0);
+}
+
+TEST(Providers, ReportsWhatThisBuildHas) {
+  for (const auto p : {KIBITZ_PROVIDER_CPU, KIBITZ_PROVIDER_QNN, KIBITZ_PROVIDER_XNNPACK})
+    std::printf("[ info ] provider %d available: %d\n", static_cast<int>(p), kibitz_has_provider(p));
+}
+
+TEST(Providers, MissingProviderWithoutFallbackIsUnavailable) {
+  if (!kibitz_has_backend(KIBITZ_BACKEND_ONNXRUNTIME)) GTEST_SKIP() << "built without ONNX Runtime";
+  int checked = 0;
+  for (const auto p : kAccelerators) {
+    if (kibitz_has_provider(p)) continue;
+    OpenedEx opened(model_path("kibitz.onnx"), p, /*fallback=*/0);
+    EXPECT_EQ(opened.status, KIBITZ_ERR_UNAVAILABLE) << static_cast<int>(p);
+    EXPECT_EQ(opened.ev, nullptr);
+    EXPECT_STRNE(kibitz_last_error(), "");
+    ++checked;
+  }
+  if (checked == 0) GTEST_SKIP() << "every provider is available in this build";
+}
+
+TEST(Providers, MissingProviderWithFallbackRunsOnCpu) {
+  if (!kibitz_has_backend(KIBITZ_BACKEND_ONNXRUNTIME)) GTEST_SKIP() << "built without ONNX Runtime";
+  for (const auto p : kAccelerators) {
+    OpenedEx opened(model_path("kibitz.onnx"), p, /*fallback=*/1);
+    ASSERT_EQ(opened.status, KIBITZ_OK) << kibitz_last_error();
+    EXPECT_LT(worst_cp_error(opened.ev), kTolerance * kCp) << static_cast<int>(p);
+  }
+}
+
+// Runs only where the provider exists (for QNN: a Snapdragon device with the QNN build of ONNX
+// Runtime). Fallback is off, so the whole INT8 graph must run on the provider.
+TEST(Providers, Int8ModelRunsEntirelyOnEachAvailableAccelerator) {
+  int ran = 0;
+  for (const auto p : kAccelerators) {
+    if (!kibitz_has_provider(p)) continue;
+    OpenedEx opened(model_path("kibitz.int8.onnx"), p, /*fallback=*/0);
+    if (opened.status != KIBITZ_OK) {
+      ADD_FAILURE() << "provider " << static_cast<int>(p) << ": " << kibitz_last_error();
+      continue;
+    }
+    EXPECT_LT(worst_cp_error(opened.ev), kInt8ToleranceCp);
+    ++ran;
+  }
+  if (ran == 0) GTEST_SKIP() << "no accelerator provider in this build";
+}
+
+TEST(Int8, MatchesPyTorchWithin25Centipawns) {
+  if (!kibitz_has_backend(KIBITZ_BACKEND_ONNXRUNTIME)) GTEST_SKIP() << "built without ONNX Runtime";
+  Evaluator ev(model_path("kibitz.int8.onnx"), KIBITZ_BACKEND_ONNXRUNTIME);
+  const float worst = worst_cp_error(ev.ev);
+  EXPECT_LT(worst, kInt8ToleranceCp);
+  std::printf("[ info ] INT8 worst |cp - PyTorch| = %.1f\n", static_cast<double>(worst));
+}
+
+TEST(Int8, IsAboutAQuarterOfTheFloatModel) {
+  const auto fp32 = std::filesystem::file_size(model_path("kibitz.onnx"));
+  const auto int8 = std::filesystem::file_size(model_path("kibitz.int8.onnx"));
+  EXPECT_LT(int8 * 3, fp32);
 }
