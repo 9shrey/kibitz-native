@@ -59,9 +59,9 @@ if(KIBITZ_WITH_ONNXRUNTIME)
   target_link_libraries(kibitz PRIVATE onnxruntime::onnxruntime)
   # Find libonnxruntime next to libkibitz at run time, wherever the folder is moved to.
   if(APPLE)
-    set_target_properties(kibitz PROPERTIES BUILD_RPATH "@loader_path;${ONNXRUNTIME_ROOT}/lib" INSTALL_RPATH "@loader_path")
+    set_target_properties(kibitz PROPERTIES BUILD_RPATH "@loader_path;${ONNXRUNTIME_LIB_DIR}" INSTALL_RPATH "@loader_path")
   elseif(UNIX)
-    set_target_properties(kibitz PROPERTIES BUILD_RPATH "$ORIGIN;${ONNXRUNTIME_ROOT}/lib" INSTALL_RPATH "$ORIGIN")
+    set_target_properties(kibitz PROPERTIES BUILD_RPATH "$ORIGIN;${ONNXRUNTIME_LIB_DIR}" INSTALL_RPATH "$ORIGIN")
   endif()
   if(WIN32)
     add_custom_command(TARGET kibitz POST_BUILD

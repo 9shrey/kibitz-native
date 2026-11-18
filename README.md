@@ -53,13 +53,13 @@ Runtime to confirm it matches PyTorch before writing anything.
 
 ## Performance
 
-Single thread, Intel i7-9750H, 200,000 positions, best of 5 (`kibitz-bench`):
+Single thread, Intel i7-9750H, 200,000 positions, best of 3 runs of `kibitz-bench` (each itself best of 5):
 
 | Backend | Batch 1 | Batch 64 | Batch 1024 |
 |---|---:|---:|---:|
-| native C++ | 301,672 /s | 307,610 /s | 318,148 /s |
-| ONNX Runtime 1.30.1 | 31,246 /s | 164,020 /s | 170,547 /s |
-| ONNX Runtime, INT8 model | 50,166 /s | 198,977 /s | 214,562 /s |
+| native C++ | 303,166 /s | 313,155 /s | 323,496 /s |
+| ONNX Runtime 1.31.1 | 30,431 /s | 163,190 /s | 164,051 /s |
+| ONNX Runtime, INT8 model | 47,439 /s | 197,223 /s | 206,315 /s |
 
 The native backend is also ahead on every platform CI builds for (GitHub-hosted runners, batch
 1024, 100,000 positions; shared machines, so treat these as rough):
@@ -83,7 +83,7 @@ product is one running sum, and compilers won't vectorise it without `-ffast-mat
 reordering float additions changes the result. Storing layer 2 transposed turns it into 32
 *independent* sums updated together, which the compiler vectorises with exact IEEE semantics; it
 also lets the loop skip the ~50% of hidden units that ReLU zeroed. Result: **4× faster** (80k to
-318k positions/s), with identical output.
+323k positions/s), with identical output.
 
 ## Execution providers and INT8
 
@@ -143,8 +143,9 @@ kibitz_open_ex("models/kibitz.int8.onnx", &o, &ev);
 
 ## Build
 
-Needs CMake 3.24+ and a C++20 compiler. ONNX Runtime 1.30.1 and GoogleTest are downloaded by
-CMake (ONNX Runtime is checked against its SHA-256); set `ONNXRUNTIME_ROOT` to use your own, or
+Needs CMake 3.24+ and a C++20 compiler. ONNX Runtime 1.31.1 (Microsoft's
+`Microsoft.ML.OnnxRuntime` package from nuget.org) and GoogleTest are downloaded by CMake (the
+ONNX Runtime package is checked against its SHA-256, and only this platform's library is extracted); set `ONNXRUNTIME_ROOT` to use your own, or
 `-DKIBITZ_WITH_ONNXRUNTIME=OFF` to build only the native backend.
 
 ```bash
