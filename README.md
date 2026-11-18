@@ -64,11 +64,11 @@ Single thread, Intel i7-9750H, 200,000 positions, best of 3 runs of `kibitz-benc
 The native backend is also ahead on every platform CI builds for (GitHub-hosted runners, batch
 1024, 100,000 positions; shared machines, so treat these as rough):
 
-| CI runner | native C++ | ONNX Runtime | native vs ORT |
-|---|---:|---:|---:|
-| macOS arm64, Clang | 544,914 /s | 148,636 /s | 3.7× |
-| Windows x64, MSVC | 442,346 /s | 281,998 /s | 1.6× |
-| Linux x64, GCC | 516,777 /s | 457,385 /s | 1.1× |
+| CI runner | native C++ | ONNX Runtime 1.31.1 | ORT, INT8 model | native vs ORT |
+|---|---:|---:|---:|---:|
+| macOS arm64, Clang | 586,140 /s | 175,874 /s | 457,506 /s | 3.3× |
+| Windows x64, MSVC | 465,366 /s | 300,063 /s | 512,895 /s | 1.6× |
+| Linux x64, GCC | 524,442 /s | 464,622 /s | 1,570,864 /s | 1.1× |
 
 Two things in the first table took work to understand:
 
@@ -115,9 +115,13 @@ kibitz_open_ex("models/kibitz.int8.onnx", &o, &ev);
   saw. The first attempt quantized every layer and was 1,179 cp wrong on a +5,137 cp position:
   the output layer's 8-bit range came from calibration and capped large scores. Keeping that
   layer (32 weights) in float32 fixed it.
-- **Speed on CPU.** INT8 makes ONNX Runtime 1.6× faster at batch 1 and 1.26× at batch 1024, but
-  the native float32 backend is still faster. The INT8 model is really for NPUs, which run
-  integer maths far more efficiently than float.
+- **Speed on CPU depends on the CPU's integer instructions.** On the i7-9750H (no VNNI, the x86
+  instructions for 8-bit dot products), INT8 makes ONNX Runtime 1.6× faster at batch 1 and 1.26×
+  at batch 1024, and the native float32 backend is still faster. On CI's Linux runner INT8 is
+  3.4× faster than float32 ONNX Runtime and 3× faster than the native backend (1.57M
+  positions/s), probably because that machine has VNNI; on the Windows runner it is 1.7× faster.
+  It's the same trade an NPU makes, more so: integer maths is far cheaper than float when the
+  hardware has instructions for it.
 - **Tested so far:** CI's ONNX Runtime packages are the standard CPU builds, so the tests cover
   provider selection, fallback and the `ERR_UNAVAILABLE` path, plus INT8 accuracy on CPU. The
   test that runs the INT8 model on QNN with fallback off only runs where the QNN build of ONNX
